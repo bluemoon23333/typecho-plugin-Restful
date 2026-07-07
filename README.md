@@ -1,220 +1,210 @@
-# Typecho Restful 插件
+# Typecho Plugin Restful
 
-[![Unit Test](https://github.com/moefront/typecho-plugin-Restful/actions/workflows/test.yml/badge.svg)](https://github.com/moefront/typecho-plugin-Restful/actions/workflows/test.yml)
-[![Version](https://badge.fury.io/ph/moefront%2Ftypecho-plugin-restful.svg)](https://packagist.org/packages/moefront/typecho-plugin-restful)
-[![styled with prettier](https://img.shields.io/badge/styled_with-prettier-ff69b4.svg)](https://github.com/prettier/prettier)
-![built by](https://img.shields.io/badge/built_by-MoeFront-ff69b4.svg)
+为 Typecho 博客系统提供 RESTful API 接口，支持通过 HTTP JSON 访问和操作站点内容。
 
-这是一个将 Typecho 博客 RESTful 化的插件。启用此插件，你可以通过请求 API 向站点请求或写入信息（获取文章内容、获取评论、添加评论等）。
+> **本仓库为二次开发版本，基于 [moefront/typecho-plugin-Restful](https://github.com/moefront/typecho-plugin-Restful) Fork 并进行了大量扩展。**
 
-**<text style="font-size: 1.2rem">不兼容Typecho1.2以前版本</text>**
+---
 
-## 食用方法
+## 目录
 
-### 常规
+- [功能特性](#功能特性)
+- [API 端点](#api-端点)
+- [安装](#安装)
+- [配置](#配置)
+- [API 认证](#api-认证)
+- [核心接口说明](#核心接口说明)
+  - [发表/更新文章](#发表更新文章)
+  - [上传文件](#上传文件)
+  - [获取文章详情](#获取文章详情)
+- [与 Obsidian Typecho Publisher 配合](#与-obsidian-typecho-publisher-配合)
+- [自定义 API 前缀](#自定义-api-前缀)
+- [注意事项](#注意事项)
+- [致谢](#致谢)
 
-下载插件并解压，将解压后的目录重命名为 `Restful` (区分大小写)，然后到后台插件管理页面启用并设置即可。
+---
 
-### 使用 Composer 安装
+## 功能特性
+
+- 全文 JSON RESTful API，共 18 个接口
+- 文章/页面/评论/分类/标签/用户/文件全量管理
+- API Token 认证
+- CORS 跨域支持（兼容非浏览器客户端）
+- 文章自定义字段（缩略图、摘要、SEO 描述等）
+- CSRF Token 保护评论接口
+- 插件自更新
+
+---
+
+## API 端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/posts` | GET | 文章列表（支持分类/标签/搜索过滤） |
+| `/api/pages` | GET | 独立页面列表 |
+| `/api/categories` | GET | 所有分类 |
+| `/api/tags` | GET | 所有标签 |
+| `/api/post` | GET | 文章/页面详情（含 CSRF Token） |
+| `/api/comments` | GET | 评论列表（树形结构、分页） |
+| `/api/recentComments` | GET | 最近评论 |
+| `/api/comment` | POST | 发表评论（需 CSRF Token） |
+| `/api/settings` | GET | 站点设置 |
+| `/api/users` | GET | 用户信息与文章 |
+| `/api/userList` | GET | 用户列表 |
+| `/api/archives` | GET | 文章归档 |
+| `/api/postArticle` | POST | 发表/更新文章（核心接口） |
+| `/api/addMetas` | POST | 新增分类/标签 |
+| `/api/upload` | POST | 上传文件 |
+| `/api/deleteFile` | POST | 删除文件 |
+| `/api/fileList` | GET | 文件列表 |
+| `/api/upgrade` | GET | 插件自更新 |
+
+---
+
+## 安装
+
+### 方式一：手动安装
+
+1. 下载本仓库压缩包
+2. 解压并重命名文件夹为 `Restful`
+3. 放到 Typecho 的 `usr/plugins/` 目录下
+4. 到 Typecho 后台 → 插件管理 → 启用
+
+### 方式二：Composer 安装
 
 ```bash
 cd /path/to/typecho/usr/plugins
-composer create-project moefront/typecho-plugin-restful Restful --prefer-dist --stability=dev
+composer create-project bluemoon23333/typecho-plugin-Restful Restful --prefer-dist --stability=dev
 chown www:www -R Restful
 ```
 
-## API
+### 安装后部署
 
-下面假设您的站点已经开启了地址重写（伪静态）；如果没有的话，那么需要在下文列出的请求的 URI 前加上 `/index.php`，例如：
-`/api/posts` => `/index.php/api/posts`.
+插件启用后，将 Action.php 和 Plugin.php 上传覆盖即可。
 
-### 文章列表
+---
 
-`GET /api/posts`
+## 配置
 
-| 参数          | 类型     | 描述                                  |    |
-|-------------|--------|-------------------------------------|----|
-| page        | int    | 当前页                                 | 可选 |
-| pageSize    | int    | 分页数                                 | 可选 |
-| filterType  | string | category 或 tag 或 search             | 可选 |
-| filterSlug  | string | 分类名或标签名或搜索关键字                       | 可选 |
-| showContent | bool   | 是否显示文章具体内容                          | 可选 |
-| showDigest  | string | 指定是否显示文章摘要及显示摘要的类型                  | 可选 |
-| limit       | int    | 当 showDigest 的类型为 excerpt 时，指定截断的字数 | 可选 |
+在 Typecho 后台「控制台 → 插件 → Restful → 设置」中配置：
 
-PS： `showDigest` 有两个可选的值，分别为 `more` 和 `excerpt`. 当选用 `more` 模式时，插件将返回文章中 `<!--more-->`
-标签前的内容解析后的 HTML；选用 `excerpt` 模式时，插件将对解析后的文章过滤 HTML 标签后，返回前 `limit` 个字符。默认 `limit`
-的值为 200.
+| 配置项 | 说明 |
+|--------|------|
+| **API 状态开关** | 可单独禁用任一 API 端点 |
+| **域名列表** | CORS 允许的源站域名，`*` 为通配符；非浏览器请求自动放行 |
+| **API Token** | API 请求需携带的令牌（header:`token`），置空不校验 |
+| **高敏接口登录校验** | 开启后 postArticle/upload/deleteFile 需要 Cookie 登录态 |
+| **CSRF 加密盐** | 评论接口的 CSRF Token 签名密钥 |
+| **自定义字段过滤** | 在文章详情中隐藏的字段名 |
 
-### 页面列表
+---
 
-`GET /api/pages`
+## API 认证
 
-### 分类列表
+所有 API 请求需在 HTTP Header 中携带 Token：
 
-`GET /api/categories`
+```
+token: 你的API令牌
+```
 
-### 标签列表
+高敏写操作（如 `postArticle`、`upload`）如果开启了 `validateLogin`，还需携带 Typecho 登录 Cookie。
 
-`GET /api/tags`
+---
 
-### 文章/页面详情
+## 核心接口说明
 
-`GET /api/post`
+### 发表/更新文章
 
-| 参数   | 类型     | 描述       |     |
-|------|--------|----------|-----|
-| cid  | int    | 文章/页面 ID | 二选一 |
-| slug | string | 文章/页面别名  | 二选一 |
+```
+POST /api/postArticle
+Content-Type: application/json
+```
 
-### 评论列表
+**参数：**
 
-`GET /api/comments`
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `title` | string | 是 | 文章标题 |
+| `text` | string | 是 | 正文（Markdown） |
+| `authorId` | number | 是 | 作者 UID |
+| `cid` | number | 否 | 文章 ID。0=新建，>0=按 cid 匹配更新 |
+| `slug` | string | 否 | URL 缩略名 |
+| `mid` | string | 否 | 分类/标签 ID，逗号分隔 |
+| `created` | number | 否 | 发布时间（Unix 时间戳） |
+| `banner` | string | 否 | 封面图 URL |
+| `description` | string | 否 | 文章摘要/SEO 描述 |
+| `status` | string | 否 | 公开状态：publish/hidden/password/private/waiting |
+| `password` | string | 否 | 访问密码（status=password 时生效） |
+| `allowComments` | number | 否 | 评论开关：0=关闭，1=允许 |
 
-| 参数       | 类型     | 描述               |     |
-|----------|--------|------------------|-----|
-| page     | int    | 当前页              | 可选  |
-| pageSize | int    | 分页数              | 可选  |
-| order    | string | 评论显示顺序(asc/desc) | 可选  |
-| cid      | int    | 文章 ID            | 二选一 |
-| slug     | string | 文章别名             | 二选一 |
-
-PS: 如果带上 Cookie 请求，会显示当前 Cookie 记住的用户所发布的待审核的评论。
-
-### 最近评论
-
-`GET /api/recentComments`
-
-| 参数   | 类型  | 描述            |    |
-|------|-----|---------------|----|
-| size | int | 最近评论的条数，默认为 9 | 可选 |
-
-### 发表评论
-
-`POST /api/comment`
-
-| 参数       | 类型     | 描述             |     |
-|----------|--------|----------------|-----|
-| cid      | int    | 文章 ID          | 二选一 |
-| slug     | string | 文章别名           | 二选一 |
-| parent   | int    | 父级评论 ID        | 可选  |
-| text     | string | 评论内容           | 必须  |
-| mail     | string | 邮箱             | 必须  |
-| url      | string | URL            | 可选  |
-| token    | string | 文章详情的csrfToken | 必须  |
-| author   | string | 作者             | 必须  |
-| authorId | int    | 作者Id           | 可选  |
-| ownerId  | int    | 所有者Id          | 可选  |
-
-PS：此处`Content-Type`为`application/json`, 也就是说你应当以 JSON 格式提交数据。
-
-PS2: uid 可以在 Cookie 中找到（形如 `hash__typecho_uid` 和 `hash__typecho_authCode` 的内容）。如果直接带上
-Cookie 请求此 API 则不再需要带上 `authorId` 参数。请求时需要带上合法的 User-Agent.
-
-### 设置项
-
-`GET /api/settings`
-
-### 用户信息
-
-`GET /api/users`
-
-| 参数   | 类型     | 描述        |    |
-|------|--------|-----------|----|
-| uid  | int    | 用户 ID     | 可选 |
-| name | string | 用户的用户名或昵称 | 可选 |
-
-### 归档
-
-`GET /api/archives`
-
-PS：默认按从新到旧 (desc) 顺序排列文章。
-
-| 参数          | 类型     | 描述                                  |    |
-|-------------|--------|-------------------------------------|----|
-| order       | string | 归档的排序方式 (asc / desc)                | 可选 |
-| showContent | bool   | 是否显示文章内容                            | 可选 |
-| showDigest  | string | 指定是否显示文章摘要及显示摘要的类型                  | 可选 |
-| limit       | int    | 当 showDigest 的类型为 excerpt 时，指定截断的字数 | 可选 |
-
-PS: `showDigest` 和 `limit` 参数的使用参见 `/api/posts` 部分。
-
-### 用户列表
-
-`GET /api/userList`
-
-### 发表文章/更新
-
-`GET /api/postArticle`
-
-PS: 根据标题或别名新增/更新文章。
-
-| 参数       | 类型     | 描述               |    |
-|----------|--------|------------------|----|
-| title    | string | 标题               | 必须 |
-| text     | string | 内容               | 必须 |
-| authorId | int    | 作者id             | 必须 |
-| slug     | string | 别名（优先根据别名更新文章）   | 可选 |
-| mid      | string | 分类/标签id(多个用逗号分隔) | 可选 |
-
-PS: mid是因为typecho分类跟标签是同一个表。
-
-### 新增分类/标签
-
-`GET /api/addMetas`
-
-| 参数   | 类型     | 描述               |    |
-|------|--------|------------------|----|
-| name | string | 名称               | 必须 |
-| type | string | 类型（category/tag） | 必须 |
-| slug | string | 别名               | 可选 |
+**返回：**
+```json
+{ "status": "success", "data": { "cid": 45, "type": "add", "slug": "my-post" } }
+```
 
 ### 上传文件
 
-`POST /api/upload`
+```
+POST /api/upload
+```
 
-| 参数       | 类型   | 描述   |    |
-|----------|------|------|----|
-| file     | file | 文件   | 必须 |
-| cid      | int  | 文章id | 可选 |
-| authorId | int  | 作者id | 可选 |
+支持 multipart/form-data 和 base64 JSON 两种格式。
 
-### 删除文件
+**JSON 格式参数：** `{ "file": "<base64>", "fileName": "image.png", "authorId": 1 }`
 
-`POST /api/deleteFile`
+**返回：** `{ "cid": 123, "title": "image.png", "type": "image/png", "size": 2048, "url": "/usr/uploads/...", "host": "https://example.com" }`
 
-| 参数  | 类型  | 描述   |    |
-|-----|-----|------|----|
-| cid | int | 文件id | 必须 |
+### 获取文章详情
 
-### 文件列表
+```
+GET /api/post?cid=1
+GET /api/post?slug=my-post
+```
 
-`POST /api/fileList`
+返回文章全文（HTML）、自定义字段、分类/标签、CSRF Token 等。
 
-| 参数       | 类型  | 描述   |    |
-|----------|-----|------|----|
-| page     | int | 第几页  | 可选 |
-| pageSize | int | 每页几个 | 可选 |
-| authorId | int | 作者id | 可选 |
+---
 
-## 其它
+## 与 Obsidian Typecho Publisher 配合
 
-### 自定义 URI 前缀
+本插件是 [Obsidian Typecho Publisher](https://github.com/bluemoon23333/obsidian-typecho-publisher) 的服务端依赖。
 
-默认情况下 Restful 插件会占用 `/api/*` 用于不同的接口。如果该 URI 有其它用途，或与其它插件冲突，或者由于某些不可描述的原因用户不希望暴露该接口，可以选择通过修改
-`config.inc.php` 自定义前缀。
+**配置要求：**
 
-例如，在 `config.inc.php` 文件中加入下列内容：
+1. 插件设置中设置 API Token（例如 `123456`）
+2. **将 `validateLogin` 设为 0（否）**——Obsidian 端仅通过 API Token 鉴权，无法携带 Typecho Cookie
+3. 推荐使用 Butterfly 主题以获得完整的文章摘要（SEO 描述）支持
+
+---
+
+## 自定义 API 前缀
+
+在 Typecho 根目录的 `config.inc.php` 中添加：
 
 ```php
 define('__TYPECHO_RESTFUL_PREFIX__', '/rest/');
 ```
 
-**重新启用插件**，此时你可以通过 `/rest/*` 访问相关 API.
+然后禁用并重新启用插件，API 端点将变为 `/rest/*`。
 
-## License
+---
 
-`typecho-plugin-restful` is MIT licensed.
+## 注意事项
 
-Since it is a derivative of Typecho which is GPLv2 licensed, you may also need to observe GPLv2 when you are
-redistributing this plugin.
+- 不兼容 Typecho 1.2 以前版本
+- 未开启地址重写的站点，API 路径前需加 `/index.php`（如 `/index.php/api/posts`）
+- 评论接口的 CSRF Token 每天过期，绑定 IP 和 UA
+- 建议将 `csrfSalt` 修改为自定义值
+
+---
+
+## 致谢
+
+- 原版插件：[moefront/typecho-plugin-Restful](https://github.com/moefront/typecho-plugin-Restful)
+- Obsidian 端插件：[obsidian-typecho-publisher](https://github.com/bluemoon23333/obsidian-typecho-publisher)
+
+---
+
+## 许可证
+
+MIT License

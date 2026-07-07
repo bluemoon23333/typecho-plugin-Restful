@@ -123,11 +123,11 @@ class Action extends Request implements ActionInterface
         $this->response->setHeader('Access-Control-Allow-Credentials', 'true');
         $allowedHttpOrigins = explode("\n", str_replace("\r", "", $this->config->offsetGet('origin')));
 
+        // 非浏览器请求（如 Obsidian 客户端、curl、Postman）不携带 Origin，放宽校验。
+        // 此时只依赖 apiToken 鉴权，CORS 无需处理。
         if (!$httpOrigin) {
-            $this->throwError('非法请求！');
-        }
-
-        if (in_array($httpOrigin, $allowedHttpOrigins)) {
+            $this->response->setHeader('Access-Control-Allow-Origin', '*');
+        } elseif (in_array($httpOrigin, $allowedHttpOrigins)) {
             $this->response->setHeader('Access-Control-Allow-Origin', $httpOrigin);
         }
 
@@ -283,7 +283,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取文章列表、搜索文章的接口
+     * 获取文章列表，支持按分类、标签、搜索词过滤
+     * GET /api/posts?page=1&pageSize=5&filterType=category&filterSlug=xxx&showDigest=more
      *
      * @return void
      */
@@ -401,7 +402,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取页面列表的接口
+     * 获取独立页面列表
+     * GET /api/pages
      *
      * @return void
      */
@@ -429,7 +431,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取分类列表的接口
+     * 获取所有分类
+     * GET /api/categories
      *
      * @return void
      */
@@ -443,7 +446,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取标签列表的接口
+     * 获取所有标签
+     * GET /api/tags
      *
      * @return void
      */
@@ -461,7 +465,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取文章、独立页面详情的接口
+     * 获取文章或独立页面详情（含自定义字段、CSRF Token）
+     * GET /api/post?cid=1 或 GET /api/post?slug=xxx
      *
      * @return void
      */
@@ -495,7 +500,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取最新（最近）评论的接口
+     * 获取最近评论列表
+     * GET /api/recentComments?size=9
      *
      * @return void
      */
@@ -520,7 +526,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取文章、独立页面评论列表的接口
+     * 获取文章评论列表（树形结构、分页）
+     * GET /api/comments?cid=1&page=1&pageSize=10
      *
      * @return void
      */
@@ -588,7 +595,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 发表评论的接口
+     * 发表评论（需 CSRF Token，从 postAction 获取）
+     * POST /api/comment  JSON: {cid, text, author, mail, token}
      *
      * @return void
      */
@@ -675,7 +683,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取设置项的接口
+     * 获取站点设置信息
+     * GET /api/settings?key=title,description
      *
      * @return void
      */
@@ -709,7 +718,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取作者信息和作者文章的接口
+     * 获取指定用户信息及其文章列表
+     * GET /api/users?uid=1 或 GET /api/users?name=admin
      *
      * @return void
      */
@@ -763,7 +773,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 归档页面接口
+     * 获取文章归档（按年月分组）
+     * GET /api/archives?order=desc
      *
      * @return void
      */
@@ -842,7 +853,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 获取用户列表
+     * 获取全部用户列表
+     * GET /api/userList
      *
      * @return void
      */
@@ -858,7 +870,12 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 发表文章
+    /**
+     * 发表/更新文章（核心接口）
+     * POST /api/postArticle
+     * 参数: title(必填), text(必填), authorId(必填), slug, cid, mid, created, banner, description, status, password, allowComments
+     * cid=0 新建文章；cid>0 按 cid 匹配更新；未匹配到则回退 slug 匹配
+     * 返回 {cid, type("add"|"update"), slug}
      */
     public function postArticleAction()
     {
@@ -882,17 +899,34 @@ class Action extends Request implements ActionInterface
         $authorId = $this->getParams('authorId', '');
         $slug = $this->getParams('slug', '');
         $mid = $this->getParams('mid', '');
+        $created = $this->getParams('created', 0);
+        $cid = intval($this->getParams('cid', 0));
+        $banner = $this->getParams('banner', '');
+        $description = $this->getParams('description', '');
+        $status = $this->getParams('status', '');
+        $password = $this->getParams('password', '');
+        $allowComments = $this->getParams('allowComments', 1);
 
         try {
-            $article = $this->db->select('cid', 'created', 'type', 'slug', 'commentsNum', 'text')
-                ->from('table.contents')
-                ->where('authorId = ?', $authorId);
-            if (!empty($slug)) {
-                $article->where('slug = ?', $slug);
-            } else {
-                $article->where('title = ?', $title);
+            $articleData = null;
+            $type = 'add';
+
+            // 1) cid 优先：cid > 0 时按 cid 查，找到即更新
+            if ($cid > 0) {
+                $article = $this->db->select('cid', 'created', 'type', 'slug', 'commentsNum', 'text')
+                    ->from('table.contents')
+                    ->where('cid = ?', $cid);
+                $articleData = $this->db->fetchRow($article);
             }
-            $articleData = $this->db->fetchRow($article);
+
+            // 2) cid 未命中 → slug 回退匹配
+            if (empty($articleData) && !empty($slug)) {
+                $article = $this->db->select('cid', 'created', 'type', 'slug', 'commentsNum', 'text')
+                    ->from('table.contents')
+                    ->where('authorId = ?', $authorId)
+                    ->where('slug = ?', $slug);
+                $articleData = $this->db->fetchRow($article);
+            }
 
             $postData = array(
                 'title' => $title,
@@ -900,16 +934,91 @@ class Action extends Request implements ActionInterface
                 'authorId' => $authorId,
                 'slug' => $slug,
             );
-            $type = 'add';
+            if (!empty($created)) {
+                $postData['created'] = intval($created);
+            }
+
+            // 自定义文章缩略图（通过 fields 表存储）
+            if (!empty($banner)) {
+                // 用 _fake_cid 占位，等拿到真正 cid 后再写
+                // 但 cid 现在还不知道——需要后处理
+            }
+
+            // 标记为 markdown 内容
+            $postData['text'] = '<!--markdown-->' . "\n" . $postData['text'];
+
+            // 公开状态：publish / hidden / password / private / waiting
+            $validStatuses = array('publish', 'hidden', 'password', 'private', 'waiting');
+            if (!empty($status) && in_array($status, $validStatuses, true)) {
+                $postData['password'] = null;
+                if ($status === 'password') {
+                    if (!empty($password)) {
+                        $postData['password'] = $password;
+                    }
+                    $postData['status'] = 'publish';
+                } else {
+                    $postData['status'] = $status;
+                }
+            }
+
+            // 评论开关
+            if ($allowComments !== null) {
+                $postData['allowComment'] = intval($allowComments) ? 1 : 0;
+            }
+
+            // 个人博客默认开启「允许被引用」和「允许在聚合中出现」
+            $postData['allowPing'] = 1;
+            $postData['allowFeed'] = 1;
             if (!empty($articleData)) {
                 // 更新
                 $postData['modified'] = $this->options->time;
-                $res = $this->db->query($this->db->sql()->where('cid = ?', $articleData['cid'])->update('table.contents')->rows($postData));
+
+                // 如果 slug 被其他 cid 占用，追加后缀避免唯一约束冲突
+                if (!empty($slug) && intval($articleData['cid']) !== $cid && $cid > 0) {
+                    // cid 优先级匹配到了另一篇文章：这条 slug 已属于其他文章
+                    // 此时更新真正被 cid 定位的文章，其 slug 保持不变（不传入 postData）
+                    unset($postData['slug']);
+                } elseif (!empty($slug)) {
+                    // slug 匹配到了同一篇 → 更新 slug（用户可能想改别名）
+                    $conflict = $this->db->fetchRow(
+                        $this->db->select('cid')->from('table.contents')
+                            ->where('slug = ?', $slug)
+                            ->where('cid != ?', $articleData['cid'])
+                    );
+                    if (!empty($conflict)) {
+                        $postData['slug'] = $slug . '-' . substr(uniqid(), -4);
+                    }
+                }
+
+                $this->db->query($this->db->sql()->where('cid = ?', $articleData['cid'])->update('table.contents')->rows($postData));
                 $cid = $articleData['cid'];
                 $type = 'update';
             } else {
                 // 新增
-                $res = $cid = $contents->insert($postData);
+                $cid = $contents->insert($postData);
+            }
+
+            // 自定义文章缩略图（cid 确定后写入 fields 表）
+            if (!empty($banner)) {
+                $this->setField($cid, 'thumb', $banner);
+            }
+
+            // 文章摘要 / SEO 描述
+            if (!empty($description)) {
+                $isButterfly = $this->isButterflyTheme();
+                if ($isButterfly) {
+                    // Butterfly 主题：写入 summaryContent / desc 字段
+                    $this->setField($cid, 'summaryContent', $description);
+                    $this->setField($cid, 'desc', $description);
+                } else {
+                    // 非 Butterfly 主题：用 <!--more--> 分隔 + 隐藏 CSS 包裹描述文本
+                    $wrapped = '<div class="typecho-rest-description" style="display:none">'
+                        . htmlspecialchars($description, ENT_QUOTES, 'UTF-8')
+                        . '</div>' . "\n\n" . '<!--more-->' . "\n\n";
+                    $postData['text'] = $wrapped . $postData['text'];
+                }
+                // 同时写入 description 以兼容其他主题通过 $this->fields->description 读取
+                $this->setField($cid, 'description', $description);
             }
             // 分类/标签
             if (!empty($mid)) {
@@ -936,14 +1045,19 @@ class Action extends Request implements ActionInterface
                 $this->refreshMetas($midArray);
             }
 
-            $this->throwData($res);
+            $this->throwData(array(
+                'cid' => intval($cid),
+                'type' => $type,
+                'slug' => $postData['slug'] ?? $slug,
+            ));
         } catch (\Typecho\Db\Exception $e) {
             $this->throwError($e->getMessage());
         }
     }
 
     /**
-     * 新增标签/分类
+     * 新增分类或标签
+     * POST /api/addMetas  JSON: {name, type("category"|"tag"), slug}
      */
     public function addMetasAction()
     {
@@ -968,7 +1082,9 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 上传文件
+     * 上传文件（支持 multipart/form-data 和 base64 JSON 两种格式）
+     * POST /api/upload
+     * 返回 {cid, title, type, size, url, host}
      */
     public function uploadAction()
     {
@@ -1023,7 +1139,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 删除文件
+     * 删除附件文件
+     * POST /api/deleteFile  JSON: {cid}
      */
     public function deleteFileAction()
     {
@@ -1051,7 +1168,7 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 文件列表
+     * 获取附件文件列表（分页）
      * GET /api/fileList?page=1&pageSize=10
      */
     public function fileListAction()
@@ -1123,7 +1240,8 @@ class Action extends Request implements ActionInterface
     }
 
     /**
-     * 插件更新接口
+     * 插件自更新（需管理员权限）
+     * GET /api/upgrade — 从 GitHub 仓库拉取最新代码覆盖本地 Plugin.php 和 Action.php
      *
      * @return void
      */
@@ -1145,8 +1263,8 @@ class Action extends Request implements ActionInterface
         $localPluginContent = file_get_contents($localPluginPath);
         $localActionContent = file_get_contents($localActionPath);
 
-        $remotePluginContent = file_get_contents('https://raw.githubusercontent.com/moefront/typecho-plugin-Restful/master/Plugin.php');
-        $remoteActionContent = file_get_contents('https://raw.githubusercontent.com/moefront/typecho-plugin-Restful/master/Action.php');
+        $remotePluginContent = file_get_contents('https://raw.githubusercontent.com/bluemoon23333/typecho-plugin-Restful/master/Plugin.php');
+        $remoteActionContent = file_get_contents('https://raw.githubusercontent.com/bluemoon23333/typecho-plugin-Restful/master/Action.php');
 
         if (!$remotePluginContent || !$remoteActionContent) {
             $this->throwError('unable to connect to GitHub');
@@ -1344,5 +1462,56 @@ class Action extends Request implements ActionInterface
                 ->rows(array('count' => $count))
                 ->where('mid = ?', $tag['mid']));
         }
+    }
+
+    /**
+     * 设置文章自定义字段（通过 table.fields）
+     *
+     * @param int $cid 文章 ID
+     * @param string $name 字段名
+     * @param string $value 字段值
+     * @return void
+     */
+    private function setField($cid, $name, $value)
+    {
+        if (empty($cid)) return;
+
+        $existing = $this->db->fetchRow(
+            $this->db->select('*')->from('table.fields')
+                ->where('cid = ?', $cid)
+                ->where('name = ?', $name)
+        );
+
+        if (!empty($existing)) {
+            $this->db->query(
+                $this->db->update('table.fields')
+                    ->rows(array('str_value' => $value))
+                    ->where('cid = ?', $cid)
+                    ->where('name = ?', $name)
+            );
+        } else {
+            $this->db->query(
+                $this->db->insert('table.fields')
+                    ->rows(array(
+                        'cid' => $cid,
+                        'name' => $name,
+                        'type' => 'str',
+                        'str_value' => $value,
+                        'int_value' => 0,
+                        'float_value' => 0,
+                    ))
+            );
+        }
+    }
+
+    /**
+     * 检测当前使用的主题是否为 Butterfly
+     *
+     * @return bool
+     */
+    private function isButterflyTheme(): bool
+    {
+        $theme = $this->options->theme ?? '';
+        return stripos($theme, 'Butterfly') !== false;
     }
 }

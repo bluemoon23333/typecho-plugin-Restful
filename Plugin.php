@@ -16,12 +16,15 @@ use Typecho\Widget\Helper\Form\Element\Textarea;
 use Utils\Helper;
 
 /**
- * Typecho Restful 插件
+ * Typecho Restful API 插件
+ *
+ * 为 Typecho 博客系统提供 RESTful API 接口，
+ * 支持与 Obsidian Typecho Publisher 插件配合使用。
  *
  * @package Restful
- * @author MoeFront Studio
- * @version 1.2.0
- * @link https://moefront.github.io
+ * @author MoeFront Studio / bluemoon23333
+ * @version 1.3.0
+ * @link https://github.com/bluemoon23333/typecho-plugin-Restful
  */
 class Plugin implements PluginInterface
 {
@@ -73,6 +76,20 @@ class Plugin implements PluginInterface
     public static function config(Form $form)
     {
         echo '<button type="button" class="btn" style="outline: 0" onclick="restfulUpgrade(this)">' . _t('检查并更新插件'). '</button>';
+
+        // 显示当前主题提示
+        $options = \Typecho\Widget::widget('Widget_Options');
+        $currentTheme = $options->theme ?? '';
+        $isButterfly = stripos($currentTheme, 'Butterfly') !== false;
+        if ($isButterfly) {
+            echo '<p style="background:#d4edda;border:1px solid #28a745;padding:10px 14px;margin-bottom:16px;border-radius:6px;color:#155724;">'
+                . _t('检测到 Butterfly 主题，文章摘要（SEO 描述）将使用主题原生字段存储。')
+                . '</p>';
+        } else {
+            echo '<p style="background:#fff3cd;border:1px solid #ffc107;padding:10px 14px;margin-bottom:16px;border-radius:6px;color:#664d03;">'
+                . _t('未检测到 Butterfly 主题。文章摘要功能将使用兼容模式（正文前插入隐藏的描述文本 + <!--more--> 标签）。建议安装 Butterfly 主题以获得完整的SEO描述支持。')
+                . '</p>';
+        }
 
         $prefix = defined('__TYPECHO_RESTFUL_PREFIX__') ? __TYPECHO_RESTFUL_PREFIX__ : '/api/';
         /* API switcher */
