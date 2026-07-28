@@ -26,7 +26,7 @@
 
 ## 功能特性
 
-- 全文 JSON RESTful API，共 18 个接口
+- 全文 JSON RESTful API，共 19 个接口
 - 文章/页面/评论/分类/标签/用户/文件全量管理
 - API Token 认证
 - CORS 跨域支持（兼容非浏览器客户端）
@@ -53,6 +53,7 @@
 | `/api/userList` | GET | 用户列表 |
 | `/api/archives` | GET | 文章归档 |
 | `/api/postArticle` | POST | 发表/更新文章（核心接口） |
+| `/api/deletePost` | POST | 删除文章（含关联的 metas/字段/评论） |
 | `/api/addMetas` | POST | 新增分类/标签 |
 | `/api/upload` | POST | 上传文件 |
 | `/api/deleteFile` | POST | 删除文件 |
@@ -136,11 +137,33 @@ Content-Type: application/json
 | `status` | string | 否 | 公开状态：publish/hidden/password/private/waiting |
 | `password` | string | 否 | 访问密码（status=password 时生效） |
 | `allowComments` | number | 否 | 评论开关：0=关闭，1=允许 |
+| `type` | string | 否 | 内容类型：`post`（默认，文章）或 `page`（独立页面） |
+| `fields` | object | 否 | 批量写入自定义字段，格式：`{"fieldName": "value", ...}` |
 
 **返回：**
 ```json
 { "status": "success", "data": { "cid": 45, "type": "add", "slug": "my-post" } }
 ```
+
+### 删除文章
+
+```
+POST /api/deletePost
+Content-Type: application/json
+```
+
+**参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `cid` | number | 是 | 要删除的文章 ID |
+
+**返回：**
+```json
+{ "status": "success", "data": { "deleted": true, "cid": 1, "title": "文章标题" } }
+```
+
+> `deletePost` 会同时删除文章的关联关系（分类/标签）、自定义字段和评论。
 
 ### 上传文件
 

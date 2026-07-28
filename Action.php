@@ -934,6 +934,13 @@ class Action extends Request implements ActionInterface
                 'authorId' => $authorId,
                 'slug' => $slug,
             );
+
+            // 支持创建独立页面（由 Obsidian 媒体同步插件使用）
+            $contentType = $this->getParams('type', 'post');
+            if (in_array($contentType, array('post', 'page'), true)) {
+                $postData['type'] = $contentType;
+            }
+
             if (!empty($created)) {
                 $postData['created'] = intval($created);
             }
@@ -1020,6 +1027,17 @@ class Action extends Request implements ActionInterface
                 // 同时写入 description 以兼容其他主题通过 $this->fields->description 读取
                 $this->setField($cid, 'description', $description);
             }
+
+            // 批量写入自定义字段（由 Obsidian 媒体同步插件使用）
+            $fields = $this->getParams('fields', null);
+            if (is_array($fields) && !empty($fields)) {
+                foreach ($fields as $fieldName => $fieldValue) {
+                    if (is_string($fieldName) && (is_string($fieldValue) || is_numeric($fieldValue))) {
+                        $this->setField($cid, $fieldName, (string)$fieldValue);
+                    }
+                }
+            }
+
             // 分类/标签
             if (!empty($mid)) {
                 if ($type == 'update') {
@@ -1165,6 +1183,43 @@ class Action extends Request implements ActionInterface
             $this->throwError('delete db failed', 500);
         }
         $this->throwData(array('deleted' => true, 'cid' => (int)$cid));
+    }
+
+    /**
+     * 删除文章
+     * POST /api/deletePost  JSON: {cid}
+     */
+    public function deletePostAction()
+    {
+        $this->lockMethod('post');
+        $this->checkState('deletePost');
+        $this->checkLogin();
+
+        $cid = $this->getParams('cid', 0);
+        if (empty($cid) || intval($cid) <= 0) {
+            $this->throwError('missing cid');
+        }
+
+        // 查文章是否存在
+        $select = $this->db->select('cid', 'title', 'type')
+            ->from('table.contents')
+            ->where('cid = ?', $cid);
+        $post = $this->db->fetchRow($select);
+        if (empty($post)) {
+            $this->throwError('post not found', 404);
+        }
+
+        // 删除文章（含关联的 metas 关系、自定义字段、评论）
+        $this->db->query($this->db->delete('table.contents')->where('cid = ?', $cid));
+        $this->db->query($this->db->delete('table.relationships')->where('cid = ?', $cid));
+        $this->db->query($this->db->delete('table.fields')->where('cid = ?', $cid));
+        $this->db->query($this->db->delete('table.comments')->where('cid = ?', $cid));
+
+        $this->throwData(array(
+            'deleted' => true,
+            'cid' => (int)$cid,
+            'title' => $post['title'],
+        ));
     }
 
     /**

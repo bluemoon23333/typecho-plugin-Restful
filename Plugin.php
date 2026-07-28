@@ -23,7 +23,7 @@ use Utils\Helper;
  *
  * @package Restful
  * @author MoeFront Studio / bluemoon23333
- * @version 1.3.0
+ * @version 1.4.0
  * @link https://github.com/bluemoon23333/typecho-plugin-Restful
  */
 class Plugin implements PluginInterface

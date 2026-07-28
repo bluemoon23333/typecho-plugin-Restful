@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.4.0 (2026-07-28) — 媒体同步 + 删除接口增强
+
+### 新增 `deletePost` 接口（`POST /api/deletePost`）
+
+- 新增 `deletePostAction()` 方法，完整的文章删除功能
+- 一次请求即可删除文章本体 + 关联的分类/标签关系（`table.relationships`）+ 自定义字段（`table.fields`）+ 评论（`table.comments`）
+- 参数：`{ "cid": 1 }`
+- 返回：`{ "deleted": true, "cid": 1, "title": "文章标题" }`
+
+> 与已有的 `deleteFile`（删除附件文件）区分：`deletePost` 用于删除文章。
+
+### 新增 `type` 参数（postArticle）
+
+- `POST /api/postArticle` 新增 `type` 参数：支持创建独立页面
+- 可选值：`post`（默认，文章）、`page`（独立页面）
+- 由 Obsidian 媒体同步插件使用，可将 Obsidian 笔记同步为 Typecho 独立页面
+
+### 新增 `fields` 参数（postArticle）
+
+- `POST /api/postArticle` 新增 `fields` 参数：支持批量写入自定义字段
+- 格式：`{ "fieldName": "value", ... }`
+- 在文章创建/更新时一次性完成所有自定义字段的写入
+- 由 Obsidian 媒体同步插件使用，例如存储原始文件路径、同步时间戳等
+
+### 新增文档文件
+
+- `MediaSyncExtension.php`：媒体同步扩展的独立参考文档，包含完整的修改指南和使用示例
+- 不会影响原有接口兼容性，仅作为开发参考
+
+### 文件变更
+
+- **修改**：`Action.php` — 新增 `deletePostAction()`、postArticle 的 `type`/`fields` 参数支持
+- **新建**：`MediaSyncExtension.php` — 媒体同步扩展文档
+
+---
+
 ## 1.3.0 (2026-07-06) — Obsidian Publisher 适配版
 
 本版本为配合 Obsidian Typecho Publisher v2.0.0 进行了大量扩展。
